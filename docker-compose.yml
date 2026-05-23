@@ -1,0 +1,154 @@
+version: "3.9"
+
+# ============================================================
+# Greencare AI — Docker Compose Orchestration
+# ============================================================
+# Services:
+#   redis           → Celery message broker + result backend
+#   lego1-gateway   → FastAPI ingest API (port 8000)
+#   lego1-worker    → Celery worker (same code as gateway)
+#   lego2-triage    → CPU fast-track triage (port 8001)
+#   lego3-groq      → Groq Vision extraction engine (port 8002)
+#   lego4-hitl      → Gradio HITL review dashboard (port 7860)
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # Redis (message broker for Celery)
+  # ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: greencare-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
+  # ──────────────────────────────────────────────────────────
+  # Lego 1 — FastAPI Gateway (Port 8000)
+  # ──────────────────────────────────────────────────────────
+  lego1-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greencare-gateway
+    restart: unless-stopped
+    command: uvicorn lego1_gateway.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - LEGO2_URL=http://lego2-triage:8001
+      - LEGO3_URL=http://lego3-groq:8002
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    volumes:
+      - shared_uploads:/app/temp_uploads
+      - shared_pending:/app/pending_review
+      - shared_final:/app/final_database
+      - shared_rejected:/app/rejected
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────
+  # Lego 1 — Celery Worker
+  # ──────────────────────────────────────────────────────────
+  lego1-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greencare-worker
+    restart: unless-stopped
+    command: celery -A lego1_gateway.worker.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - LEGO2_URL=http://lego2-triage:8001
+      - LEGO3_URL=http://lego3-groq:8002
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    volumes:
+      - shared_uploads:/app/temp_uploads
+      - shared_pending:/app/pending_review
+      - shared_final:/app/final_database
+      - shared_rejected:/app/rejected
+      - shared_lego2_temp:/app/lego2_temp
+    depends_on:
+      redis:
+        condition: service_healthy
+      lego2-triage:
+        condition: service_started
+      lego3-groq:
+        condition: service_started
+
+  # ──────────────────────────────────────────────────────────
+  # Lego 2 — CPU Triage Service (Port 8001)
+  # ──────────────────────────────────────────────────────────
+  lego2-triage:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greencare-triage
+    restart: unless-stopped
+    command: uvicorn lego2_triage.triage_service:app --host 0.0.0.0 --port 8001 --reload
+    ports:
+      - "8001:8001"
+    volumes:
+      - shared_lego2_temp:/app/lego2_temp
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────
+  # Lego 3 — Groq Vision Engine (Port 8002)
+  # ──────────────────────────────────────────────────────────
+  lego3-groq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greencare-groq
+    restart: unless-stopped
+    command: uvicorn lego3_groq.groq_engine:app --host 0.0.0.0 --port 8002 --reload
+    ports:
+      - "8002:8002"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=llama-3.2-90b-vision-preview
+      - GROQ_MAX_TOKENS=4096
+    volumes:
+      - shared_lego2_temp:/app/lego2_temp    # reads cleaned images from Lego 2
+
+  # ──────────────────────────────────────────────────────────
+  # Lego 4 — HITL Dashboard (Port 7860)
+  # ──────────────────────────────────────────────────────────
+  lego4-hitl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: greencare-hitl
+    restart: unless-stopped
+    command: python lego4_hitl/hitl_ui.py
+    ports:
+      - "7860:7860"
+    volumes:
+      - shared_pending:/app/pending_review
+      - shared_final:/app/final_database
+      - shared_rejected:/app/rejected
+      - shared_uploads:/app/temp_uploads
+      - shared_lego2_temp:/app/lego2_temp
+
+# ──────────────────────────────────────────────────────────
+# Named Volumes (shared between services)
+# ──────────────────────────────────────────────────────────
+volumes:
+  redis_data:
+  shared_uploads:
+  shared_pending:
+  shared_final:
+  shared_rejected:
+  shared_lego2_temp:

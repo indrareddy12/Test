@@ -1,0 +1,30 @@
+# Greencare AI — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Web Framework ──────────────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9     # required for FastAPI file uploads
+
+# ── Async Task Queue ────────────────────────────────────────────────────────
+celery==5.4.0
+redis==5.0.7                # Python Redis client (matches celery broker)
+
+# ── HTTP Client ─────────────────────────────────────────────────────────────
+requests==2.32.3
+
+# ── PDF Parsing ──────────────────────────────────────────────────────────────
+pypdf==4.3.1
+
+# ── Computer Vision (CPU pre-processing) ─────────────────────────────────────
+opencv-python-headless==4.10.0.84   # headless = no GUI dependency (server-safe)
+numpy==1.26.4
+
+# ── Groq SDK ─────────────────────────────────────────────────────────────────
+groq==0.9.0
+
+# ── HITL Dashboard ────────────────────────────────────────────────────────────
+gradio==4.37.2
+
+# ── Data Validation ───────────────────────────────────────────────────────────
+pydantic==2.7.4

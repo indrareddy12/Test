@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+temp_uploads/
+pending_review/
+final_database/
+rejected/
+lego2_temp/
+extracted_assets/
+exports/
+*.json
+!.env.example
+!docker-compose.yml
+!requirements.txt
+.structure
